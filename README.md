@@ -1,20 +1,31 @@
-# agentvault (Evez AgentOS)
+# 🏦 AgentVault
 
-This repository is a private **vault + indexer** for your exported ChatGPT and Perplexity conversations, with GitHub as the control plane for autonomous “draft-first” work.
+## 🌀 Autonomous System: ACTIVE
 
-## What it does (today)
+**Status:** 🟢 OPERATIONAL
 
-- Stores your exported chat archives in `vault/`.
-- Ingests supported formats into a local SQLite database (`data/agentvault.sqlite`).
-- Builds a full-text index (FTS5) so an agent can retrieve relevant past context without stuffing everything into one prompt.
-- Runs nightly in GitHub Actions to rebuild the index and post a **draft queue** issue (no destructive actions).
+This repository is monitored by the Autonomous Core system.
 
-## Quick start
+### Capabilities:
+- 🔍 Continuous monitoring
+- 🧠 AI-powered analysis
+- 🔧 Automated fixes
+- 📊 Metric tracking
 
-Follow `docs/SETUP.md`.
+**Actions:** [View Live Status](https://github.com/EvezArt/AgentVault/actions)
 
-## Safety model
+---
 
-- No secrets belong in chat threads.
-- API keys (if you later add LLM calls) must be stored as GitHub Actions secrets.
-- Default mode is **draft-only**: the system writes proposed actions as issues/comments; you decide what to merge/execute.
+## About AgentVault
+
+Agent storage and management system.
+
+### Features:
+- Secure agent vault
+- Version control
+- Access management
+- Audit logging
+
+---
+
+🌀 **Powered by Autonomous Core**
