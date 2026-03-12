@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "agentvault"
+version = "0.1.0"
+description = "AgentOS vault — index, search, and sync agent exports"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+agentvault = "vault.sync_agent:sync"
+
+[tool.setuptools.packages.find]
+where = ["."]
