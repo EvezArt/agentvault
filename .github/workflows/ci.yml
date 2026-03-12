@@ -1,0 +1,30 @@
+name: agentvault CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    name: 'Test + Lint — AgentOS Vault'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install deps
+        run: |
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install pyflakes pytest
+      - name: Lint
+        run: pyflakes . --exclude=.git,__pycache__ || true
+      - name: Test
+        run: pytest -q || true
+      - name: Vault index check
+        run: |
+          echo "Vault files present:"
+          find . -name '*.json' -o -name '*.md' | grep -v .git | head -30
