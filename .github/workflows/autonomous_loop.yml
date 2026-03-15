@@ -2,12 +2,12 @@ name: Autonomous Vault Heartbeat
 
 on:
   schedule:
-    - cron: '*/15 * * * *'
+    - cron: '0 8 * * *'
   workflow_dispatch:
 
 jobs:
   vault-cycle:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-latest' }}
     permissions:
       contents: write
     steps:
