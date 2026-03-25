@@ -1,103 +1,124 @@
-#!/usr/bin/env python3
 """
-sync_agent.py — Auto-sync vault exports.
+vault/sync_agent.py — agentvault
+Watches configured export directory for new .json/.md files.
+Indexes them, computes content hash, appends to vault_index.json,
+and emails rubikspubes69@gmail.com on each new file.
 
-Watches for new .json/.md exports, indexes them, hashes them,
-appends to vault_index.json.
+Usage:
+  python -m vault.sync_agent          # one-shot scan
+  python -m vault.sync_agent --watch  # continuous 60s poll
 """
 
+import os
+import sys
 import json
 import hashlib
-import os
-from pathlib import Path
+import time
+import smtplib
+import argparse
 from datetime import datetime, timezone
+from pathlib import Path
+from email.mime.text import MIMEText
 
-VAULT_DIR = Path("vault/exports")
-INDEX_FILE = Path("vault/vault_index.json")
-
-
-def _now() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def _file_hash(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()[:16]
+EXPORT_DIR = Path(os.environ.get("VAULT_EXPORT_DIR", "exports"))
+INDEX_PATH = Path(os.environ.get("VAULT_INDEX_PATH", "vault_index.json"))
+WATCH_INTERVAL = int(os.environ.get("VAULT_WATCH_INTERVAL", "60"))
+NOTIFY_EMAIL = os.environ.get("NOTIFY_EMAIL", "rubikspubes69@gmail.com")
+GMAIL_USER = os.environ.get("GMAIL_USER", "")
+GMAIL_PASS = os.environ.get("GMAIL_PASS", "")
 
 
-def _extract_topics(content: str) -> list:
-    """Extract key topics from content via simple keyword extraction."""
-    words = set(content.lower().split())
-    # Remove common words
-    stopwords = {"the","a","an","and","or","but","in","on","at","to","for","of","with","by"}
-    keywords = [w for w in words if len(w) > 5 and w not in stopwords]
-    return keywords[:10]
+def load_index() -> dict:
+    if INDEX_PATH.exists():
+        return json.loads(INDEX_PATH.read_text())
+    return {"entries": [], "hashes": []}
 
 
-def load_index() -> list:
-    if not INDEX_FILE.exists():
-        return []
-    return json.loads(INDEX_FILE.read_text())
+def save_index(idx: dict):
+    INDEX_PATH.write_text(json.dumps(idx, indent=2))
 
 
-def save_index(entries: list):
-    INDEX_FILE.parent.mkdir(parents=True, exist_ok=True)
-    INDEX_FILE.write_text(json.dumps(entries, indent=2))
+def file_hash(path: Path) -> str:
+    h = hashlib.sha256()
+    h.update(path.read_bytes())
+    return h.hexdigest()[:16]
 
 
-def sync():
-    """Scan vault/exports for new files and index them."""
-    VAULT_DIR.mkdir(parents=True, exist_ok=True)
-    existing = load_index()
-    existing_hashes = {e["hash"] for e in existing}
+def extract_topics(text: str, n: int = 5) -> list[str]:
+    """Naive keyword extraction — top N most-frequent long words."""
+    import re
+    words = re.findall(r'[a-zA-Z]{5,}', text.lower())
+    freq: dict[str, int] = {}
+    for w in words:
+        freq[w] = freq.get(w, 0) + 1
+    return sorted(freq, key=freq.__getitem__, reverse=True)[:n]
+
+
+def send_email(subject: str, body: str):
+    if not GMAIL_USER or not GMAIL_PASS:
+        print(f"[sync_agent] EMAIL SKIP (no creds): {subject}")
+        return
+    try:
+        msg = MIMEText(body)
+        msg["Subject"] = subject
+        msg["From"] = GMAIL_USER
+        msg["To"] = NOTIFY_EMAIL
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
+            smtp.login(GMAIL_USER, GMAIL_PASS)
+            smtp.sendmail(GMAIL_USER, NOTIFY_EMAIL, msg.as_string())
+        print(f"[sync_agent] Email sent: {subject}")
+    except Exception as e:
+        print(f"[sync_agent] Email error: {e}")
+
+
+def scan_once() -> list[dict]:
+    EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+    idx = load_index()
+    known_hashes = set(idx.get("hashes", []))
     new_entries = []
 
-    for f in VAULT_DIR.glob("**/*"):
-        if f.suffix not in (".json", ".md", ".txt"):
-            continue
-        h = _file_hash(f)
-        if h in existing_hashes:
-            continue
-        content = f.read_text(errors="replace")
-        entry = {
-            "file": str(f.relative_to(VAULT_DIR)),
-            "hash": h,
-            "size_bytes": f.stat().st_size,
-            "indexed_at": _now(),
-            "topics": _extract_topics(content[:2000]),
-        }
-        new_entries.append(entry)
-        print(f"[VAULT] Indexed: {entry['file']} | {h}")
+    for ext in ("*.json", "*.md"):
+        for fpath in sorted(EXPORT_DIR.glob(ext)):
+            fhash = file_hash(fpath)
+            if fhash in known_hashes:
+                continue
+            text = fpath.read_text(errors="ignore")
+            topics = extract_topics(text)
+            entry = {
+                "filename": fpath.name,
+                "hash": fhash,
+                "size_bytes": fpath.stat().st_size,
+                "key_topics": topics,
+                "indexed_at": datetime.now(timezone.utc).isoformat(),
+            }
+            idx["entries"].append(entry)
+            idx["hashes"].append(fhash)
+            known_hashes.add(fhash)
+            new_entries.append(entry)
+            print(f"[sync_agent] Indexed: {fpath.name} | {fhash} | {topics}")
+            send_email(
+                f"[AgentVault] New export indexed: {fpath.name}",
+                f"Filename : {fpath.name}\nHash     : {fhash}\nSize     : {entry['size_bytes']} bytes\nTopics   : {', '.join(topics)}\nIndexed  : {entry['indexed_at']}",
+            )
 
     if new_entries:
-        all_entries = existing + new_entries
-        save_index(all_entries)
-        print(f"[VAULT] {len(new_entries)} new entries. Total: {len(all_entries)}")
-    else:
-        print(f"[VAULT] No new files. Index has {len(existing)} entries.")
-
+        save_index(idx)
     return new_entries
 
 
-def search(query: str) -> list:
-    """Simple keyword search over vault index."""
-    entries = load_index()
-    q = query.lower()
-    results = []
-    for e in entries:
-        score = sum(1 for t in e.get("topics", []) if q in t)
-        if q in e.get("file", "").lower():
-            score += 3
-        if score > 0:
-            results.append({**e, "score": score})
-    return sorted(results, key=lambda x: x["score"], reverse=True)[:20]
+def watch():
+    print(f"[sync_agent] Watching {EXPORT_DIR} every {WATCH_INTERVAL}s...")
+    while True:
+        scan_once()
+        time.sleep(WATCH_INTERVAL)
 
 
 if __name__ == "__main__":
-    import sys
-    if len(sys.argv) > 1 and sys.argv[1] == "search":
-        q = " ".join(sys.argv[2:])
-        results = search(q)
-        for r in results:
-            print(f"[{r['score']}] {r['file']} | {r['hash']} | {r.get('indexed_at','')}")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--watch", action="store_true")
+    args = parser.parse_args()
+    if args.watch:
+        watch()
     else:
-        sync()
+        results = scan_once()
+        print(f"[sync_agent] Done. {len(results)} new entries indexed.")

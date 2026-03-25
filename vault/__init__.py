@@ -1,5 +1,5 @@
-"""agentvault — AgentOS vault package."""
+"""AgentVault — private vault + indexer for AI exports."""
+from .sync_agent import scan_once, watch
+from .search import app
 
-from .sync_agent import sync, search, load_index
-
-__all__ = ["sync", "search", "load_index"]
+__all__ = ["scan_once", "watch", "app"]
