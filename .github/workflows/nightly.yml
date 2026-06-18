@@ -30,7 +30,7 @@ jobs:
           python index/build_index.py --init-only
 
       - name: Create or update draft queue issue
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const title = "AgentOS: Next Actions Queue (draft-only)";
