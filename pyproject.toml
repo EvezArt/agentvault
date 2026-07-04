@@ -9,7 +9,7 @@ description = "Private vault + indexer + search for ChatGPT/Perplexity exports"
 requires-python = ">=3.10"
 dependencies = [
     "fastapi>=0.110.0",
-    "uvicorn[standard]>=0.29.0",
+    "uvicorn[standard]>=0.50.0",
     "python-dotenv>=1.0.0",
 ]
 
