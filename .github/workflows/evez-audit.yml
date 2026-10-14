@@ -1,4 +1,5 @@
 name: EvezArt Security Audit
+
 on:
   workflow_dispatch:
   pull_request:
@@ -33,15 +34,18 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - run: pip install detect-secrets
-      - run: |
+      - name: Install detect-secrets
+        run: python -m pip install detect-secrets
+      - name: Scan tracked files
+        run: |
           detect-secrets scan --all-files > .secrets.baseline
           python3 -c "
 import json, sys
 data = json.load(open('.secrets.baseline'))
 total = sum(len(v) for v in data.get('results', {}).values())
 print(f'Potential secrets: {total}')
-if total: sys.exit(1)
+if total:
+    sys.exit(1)
 "
 
   deps:
@@ -49,7 +53,14 @@ if total: sys.exit(1)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - if: hashFiles('requirements*.txt') != ''
-        run: pip install pip-audit && pip-audit -r requirements.txt || true
-      - if: hashFiles('package.json') != ''
-        run: npm audit --audit-level=moderate || true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Audit Python requirements
+        if: hashFiles('requirements.txt') != ''
+        run: |
+          python -m pip install --upgrade pip pip-audit
+          pip-audit -r requirements.txt
+      - name: Audit npm dependencies
+        if: hashFiles('package.json') != ''
+        run: npm audit --audit-level=moderate

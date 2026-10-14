@@ -7,6 +7,14 @@ __pycache__/
 vault/**
 !vault/README.md
 
+# Legacy import path and generated local indexes
+exports/**
+!exports/README.md
+vault_index.json
+*.sqlite
+*.sqlite3
+*.db
+
 # Local data
 data/**
 !data/.keep

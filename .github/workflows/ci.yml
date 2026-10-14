@@ -8,6 +8,9 @@ on:
   schedule:
     - cron: '0 6 * * 1'
 
+permissions:
+  contents: read
+
 jobs:
   health:
     runs-on: ubuntu-latest
@@ -16,13 +19,23 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Install deps
+
+      - name: Install dependencies
         run: |
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          if [ -f setup.py ]; then pip install -e .; fi
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then python -m pip install -r requirements.txt; fi
+          python -m pip install requests
+          if [ -f setup.py ]; then python -m pip install -e .; fi
+
       - name: Syntax check
         run: |
-          find . -name '*.py' -not -path './.git/*' -exec python -m py_compile {} \;
-      - name: Test
+          find . -name '*.py' -not -path './.git/*' -not -path './.venv/*' -exec python -m py_compile {} \;
+
+      - name: Run tests
         run: |
-          if [ -d tests ]; then python -m pytest tests/ -q || true; fi
+          if [ -d tests ]; then
+            python -m unittest discover -s tests -v
+          else
+            echo "::error::tests directory is missing"
+            exit 1
+          fi

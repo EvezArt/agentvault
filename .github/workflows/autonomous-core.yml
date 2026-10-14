@@ -5,6 +5,9 @@ on:
     - cron: '0 */12 * * *'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   monitor:
     runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-latest' }}
@@ -13,19 +16,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - name: 🔍 Monitor AgentVault
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      - name: Emit scaffold status
         run: |
-          cat > monitor.js << 'EOF'
-          const https = require('https');
+          node <<'EOF'
           function log(msg) { console.log(`[${new Date().toISOString()}] ${msg}`); }
-          async function monitor() {
-            log('🌀 AgentVault Autonomous Monitor Active');
-            log('✅ System operational');
-            log('📊 Monitoring: Issues, PRs, Workflows');
-          }
-          monitor().catch(console.error);
+          log('AgentVault monitor scaffold ran.');
+          log('No repository monitoring, AI analysis, or automated fixes are performed by this workflow.');
           EOF
-          node monitor.js

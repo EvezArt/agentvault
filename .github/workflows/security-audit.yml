@@ -1,18 +1,49 @@
 name: Security Audit
+
 on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
   schedule:
     - cron: '0 8 * * 1'
   workflow_dispatch:
+
+permissions:
+  contents: read
+
 jobs:
   audit:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Security scan
+
+      - name: Install audit tools
         run: |
-          pip install bandit safety
-          if [ -f requirements.txt ]; then safety check -r requirements.txt || true; fi
-          find . -name '*.py' -not -path './.git/*' | head -50 | xargs bandit -f json -o bandit-report.json || true
+          python -m pip install --upgrade pip
+          python -m pip install bandit pip-audit
+
+      - name: Audit requirements
+        if: hashFiles('requirements.txt') != ''
+        run: pip-audit -r requirements.txt
+
+      - name: Audit project dependencies
+        if: hashFiles('pyproject.toml') != ''
+        run: pip-audit .
+
+      - name: Bandit static analysis
+        run: |
+          bandit -r . -x ./.git,./.venv,./venv,./build,./dist -f json -o bandit-report.json
+        continue-on-error: false
+
+      - name: Upload Bandit report
+        if: always() && hashFiles('bandit-report.json') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: bandit-report
+          path: bandit-report.json
+          retention-days: 7

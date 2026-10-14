@@ -1,11 +1,6 @@
 # .github/workflows/swarm_automerge.yml
-# Resolves agentvault#1: Swarm auto-merge PRs
-#
-# Triggers:
-#   - On PR opened / ready-for-review / labeled
-#   - On push to main (re-checks any open PRs)
-# Merges any PR from EvezArt (owner) that passes all required checks.
-# Uses squash merge. Closes linked issue via commit message if present.
+# Auto-merge is opt-in, never a default for every owner PR.
+# Requires the explicit "swarm" label and at least one approval.
 
 name: Swarm Auto-Merge
 
@@ -19,23 +14,27 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  checks: read
+  statuses: read
 
 jobs:
   automerge:
+    # Never attempt auto-merge directly from a draft-PR event.
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Auto-merge owner PRs
+      - name: Auto-merge explicitly authorized swarm PRs
         uses: pascalgn/automerge-action@v0.16.3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MERGE_METHOD: squash
           MERGE_COMMIT_MESSAGE: pull-request-title-and-description
           MERGE_FILTER_AUTHOR: EvezArt
-          MERGE_LABELS: ""
-          MERGE_REQUIRED_APPROVALS: 0
+          MERGE_LABELS: "swarm"
+          MERGE_REQUIRED_APPROVALS: 1
           UPDATE_METHOD: rebase
           MERGE_RETRIES: "6"
           MERGE_RETRY_SLEEP: "10000"

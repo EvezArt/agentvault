@@ -5,19 +5,33 @@ on:
     - cron: '0 8 * * *'
   workflow_dispatch:
 
+# This job reads its checkout and publishes only to the separately authorized
+# ledger. The default token must not write repository contents.
+permissions:
+  contents: read
+
 jobs:
   vault-cycle:
     runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-latest' }}
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: pip install requests
-      - name: Run vault heartbeat
+
+      - name: Install heartbeat dependency
+        run: python -m pip install requests
+
+      - name: Compile heartbeat
+        run: python -m py_compile vault/heartbeat.py
+
+      - name: Publish verified heartbeat receipt
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ABLY_KEY: ${{ secrets.ABLY_KEY }}
+          # Create this as a fine-grained token restricted to
+          # EvezArt/evez-autonomous-ledger with Contents: read/write only.
+          LEDGER_GITHUB_TOKEN: ${{ secrets.LEDGER_GITHUB_TOKEN }}
+          # Ably is an external data recipient and is opt-in.
+          ENABLE_ABLY_HEARTBEAT: ${{ vars.ENABLE_ABLY_HEARTBEAT || 'false' }}
+          ABLY_KEY: ${{ vars.ENABLE_ABLY_HEARTBEAT == 'true' && secrets.ABLY_KEY || '' }}
         run: python vault/heartbeat.py
