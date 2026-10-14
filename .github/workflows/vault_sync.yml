@@ -2,7 +2,7 @@ name: Nightly Vault Sync
 
 on:
   schedule:
-    - cron: '0 9 * * *'  # 01:00 Arizona time is not fixed by this UTC schedule; review timezone intent.
+    - cron: '0 9 * * *'  # Daily at 09:00 UTC; review this clock if the intended local time differs.
   workflow_dispatch:
 
 permissions:
@@ -16,8 +16,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Install sync dependency
-        run: python -m pip install requests
       - name: Run vault sync
         # Raw local exports are ignored and are not present in a hosted runner checkout.
         # Email notifications are disabled by default in sync_agent.py.
