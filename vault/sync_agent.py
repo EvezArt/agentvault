@@ -1,8 +1,14 @@
 """
 vault/sync_agent.py — agentvault
-Watches configured export directory for new .json/.md files.
-Indexes them, computes content hash, appends to vault_index.json,
-and emails rubikspubes69@gmail.com on each new file.
+
+Watches a configured export directory for new .json/.md files, indexes filenames,
+content hashes, sizes, and topic summaries, and can optionally email that metadata.
+
+Privacy defaults:
+- Email notifications are disabled unless AGENTVAULT_EMAIL_NOTIFICATIONS=true.
+- No default recipient is configured; NOTIFY_EMAIL must be supplied explicitly.
+- The email body contains metadata and extracted topics, not the export's raw text.
+- Keep exports and generated indexes out of version control.
 
 Usage:
   python -m vault.sync_agent          # one-shot scan
@@ -23,7 +29,10 @@ from email.mime.text import MIMEText
 EXPORT_DIR = Path(os.environ.get("VAULT_EXPORT_DIR", "exports"))
 INDEX_PATH = Path(os.environ.get("VAULT_INDEX_PATH", "vault_index.json"))
 WATCH_INTERVAL = int(os.environ.get("VAULT_WATCH_INTERVAL", "60"))
-NOTIFY_EMAIL = os.environ.get("NOTIFY_EMAIL", "rubikspubes69@gmail.com")
+EMAIL_NOTIFICATIONS_ENABLED = (
+    os.environ.get("AGENTVAULT_EMAIL_NOTIFICATIONS", "false").strip().lower() == "true"
+)
+NOTIFY_EMAIL = os.environ.get("NOTIFY_EMAIL", "").strip()
 GMAIL_USER = os.environ.get("GMAIL_USER", "")
 GMAIL_PASS = os.environ.get("GMAIL_PASS", "")
 
@@ -47,28 +56,36 @@ def file_hash(path: Path) -> str:
 def extract_topics(text: str, n: int = 5) -> list[str]:
     """Naive keyword extraction — top N most-frequent long words."""
     import re
-    words = re.findall(r'[a-zA-Z]{5,}', text.lower())
+
+    words = re.findall(r"[a-zA-Z]{5,}", text.lower())
     freq: dict[str, int] = {}
-    for w in words:
-        freq[w] = freq.get(w, 0) + 1
+    for word in words:
+        freq[word] = freq.get(word, 0) + 1
     return sorted(freq, key=freq.__getitem__, reverse=True)[:n]
 
 
 def send_email(subject: str, body: str):
-    if not GMAIL_USER or not GMAIL_PASS:
-        print(f"[sync_agent] EMAIL SKIP (no creds): {subject}")
+    if not EMAIL_NOTIFICATIONS_ENABLED:
+        print("[sync_agent] EMAIL SKIP (notifications disabled; explicit opt-in required)")
         return
+    if not NOTIFY_EMAIL:
+        print("[sync_agent] EMAIL SKIP (NOTIFY_EMAIL not configured)")
+        return
+    if not GMAIL_USER or not GMAIL_PASS:
+        print("[sync_agent] EMAIL SKIP (GMAIL_USER/GMAIL_PASS not configured)")
+        return
+
     try:
         msg = MIMEText(body)
         msg["Subject"] = subject
         msg["From"] = GMAIL_USER
         msg["To"] = NOTIFY_EMAIL
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=15) as smtp:
             smtp.login(GMAIL_USER, GMAIL_PASS)
             smtp.sendmail(GMAIL_USER, NOTIFY_EMAIL, msg.as_string())
         print(f"[sync_agent] Email sent: {subject}")
-    except Exception as e:
-        print(f"[sync_agent] Email error: {e}")
+    except Exception as exc:
+        print(f"[sync_agent] Email error ({type(exc).__name__}); notification not confirmed")
 
 
 def scan_once() -> list[dict]:
@@ -98,7 +115,8 @@ def scan_once() -> list[dict]:
             print(f"[sync_agent] Indexed: {fpath.name} | {fhash} | {topics}")
             send_email(
                 f"[AgentVault] New export indexed: {fpath.name}",
-                f"Filename : {fpath.name}\nHash     : {fhash}\nSize     : {entry['size_bytes']} bytes\nTopics   : {', '.join(topics)}\nIndexed  : {entry['indexed_at']}",
+                f"Filename : {fpath.name}\nHash     : {fhash}\nSize     : {entry['size_bytes']} bytes\n"
+                f"Topics   : {', '.join(topics)}\nIndexed  : {entry['indexed_at']}",
             )
 
     if new_entries:
