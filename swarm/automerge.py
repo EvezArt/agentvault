@@ -55,9 +55,51 @@ def get_open_prs(repo: str) -> list:
 
 
 def is_mergeable(pr: dict) -> bool:
-    """Re-fetch single PR for mergeable status (lazy-computed by GitHub)."""
-    detail = gh("GET", f"/repos/{ORG}/{pr['base']['repo']['name']}/pulls/{pr['number']}")
-    return detail.get("mergeable") is True and detail.get("draft") is False
+    """Fail closed unless a PR has explicit approval, successful checks, and a safety label."""
+    repo = pr["base"]["repo"]["name"]
+    number = pr["number"]
+    detail = gh("GET", f"/repos/{ORG}/{repo}/pulls/{number}")
+    if not isinstance(detail, dict) or detail.get("error"):
+        return False
+    if detail.get("mergeable") is not True or detail.get("draft") is not False:
+        return False
+    if detail.get("user", {}).get("login") != ORG:
+        return False
+    if not any(label.get("name") == "swarm-approved" for label in detail.get("labels", [])):
+        return False
+
+    head_sha = (detail.get("head") or {}).get("sha")
+    if not head_sha:
+        return False
+
+    reviews = gh("GET", f"/repos/{ORG}/{repo}/pulls/{number}/reviews")
+    if not isinstance(reviews, list):
+        return False
+    latest_by_reviewer = {}
+    for review in reviews:
+        reviewer = (review.get("user") or {}).get("login")
+        submitted_at = review.get("submitted_at")
+        if not reviewer or not submitted_at:
+            continue
+        prior = latest_by_reviewer.get(reviewer)
+        if not prior or submitted_at > prior.get("submitted_at", ""):
+            latest_by_reviewer[reviewer] = review
+    approved = [
+        review for reviewer, review in latest_by_reviewer.items()
+        if reviewer != detail["user"]["login"] and review.get("state") == "APPROVED"
+    ]
+    if not approved:
+        return False
+
+    checks = gh("GET", f"/repos/{ORG}/{repo}/commits/{head_sha}/check-runs")
+    check_runs = checks.get("check_runs", []) if isinstance(checks, dict) else []
+    if not check_runs:
+        return False
+    if any(run.get("status") != "completed" or
+           run.get("conclusion") not in ("success", "neutral", "skipped")
+           for run in check_runs):
+        return False
+    return True
 
 
 def merge_pr(repo: str, number: int, title: str) -> dict:
