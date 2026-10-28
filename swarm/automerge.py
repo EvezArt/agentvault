@@ -72,7 +72,7 @@ def is_mergeable(pr: dict) -> bool:
     if not head_sha:
         return False
 
-    reviews = gh("GET", f"/repos/{ORG}/{repo}/pulls/{number}/reviews")
+    reviews = gh("GET", f"/repos/{ORG}/{repo}/pulls/{number}/reviews?per_page=100")
     if not isinstance(reviews, list):
         return False
     latest_by_reviewer = {}
@@ -95,9 +95,16 @@ def is_mergeable(pr: dict) -> bool:
     check_runs = checks.get("check_runs", []) if isinstance(checks, dict) else []
     if not check_runs:
         return False
+    if checks.get("total_count") != len(check_runs):
+        # Pagination/truncation must fail closed rather than miss an unseen failure.
+        return False
     if any(run.get("status") != "completed" or
            run.get("conclusion") not in ("success", "neutral", "skipped")
            for run in check_runs):
+        return False
+
+    combined = gh("GET", f"/repos/{ORG}/{repo}/commits/{head_sha}/status")
+    if not isinstance(combined, dict) or combined.get("state") != "success":
         return False
     return True
 
