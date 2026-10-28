@@ -1,41 +1,107 @@
-# .github/workflows/swarm_automerge.yml
-# Resolves agentvault#1: Swarm auto-merge PRs
-#
-# Triggers:
-#   - On PR opened / ready-for-review / labeled
-#   - On push to main (re-checks any open PRs)
-# Merges any PR from EvezArt (owner) that passes all required checks.
-# Uses squash merge. Closes linked issue via commit message if present.
+name: Human-Gated Swarm Merge
 
-name: Swarm Auto-Merge
-
+# Security posture: this workflow never merges automatically from pull_request events.
+# A maintainer must manually dispatch it with the PR number after a human review.
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, labeled]
-  push:
-    branches: [main]
   workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "Pull request number to evaluate for a gated squash merge"
+        required: true
+        type: number
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
-  automerge:
+  approve-and-merge:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      checks: read
+      statuses: read
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Auto-merge owner PRs
-        uses: pascalgn/automerge-action@v0.16.3
+      - name: Validate approval, label, and CI
+        uses: actions/github-script@v7
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          MERGE_METHOD: squash
-          MERGE_COMMIT_MESSAGE: pull-request-title-and-description
-          MERGE_FILTER_AUTHOR: EvezArt
-          MERGE_LABELS: ""
-          MERGE_REQUIRED_APPROVALS: 0
-          UPDATE_METHOD: rebase
-          MERGE_RETRIES: "6"
-          MERGE_RETRY_SLEEP: "10000"
+          PR_NUMBER: ${{ inputs.pr_number }}
+        with:
+          script: |
+            const prNumber = Number(process.env.PR_NUMBER);
+            if (!Number.isInteger(prNumber) || prNumber < 1) {
+              core.setFailed("PR_NUMBER must be a positive integer.");
+              return;
+            }
+
+            const { owner, repo } = context.repo;
+            const { data: pr } = await github.rest.pulls.get({
+              owner, repo, pull_number: prNumber
+            });
+
+            if (pr.user.login !== owner) {
+              core.setFailed("Only maintainer-authored PRs are eligible for this merge workflow.");
+              return;
+            }
+            if (pr.draft) {
+              core.setFailed("Draft PRs cannot be merged.");
+              return;
+            }
+            if (!pr.labels.some(label => label.name === "swarm-approved")) {
+              core.setFailed('Required label "swarm-approved" is missing.');
+              return;
+            }
+
+            const reviews = await github.paginate(github.rest.pulls.listReviews, {
+              owner, repo, pull_number: prNumber, per_page: 100
+            });
+            const latestByReviewer = new Map();
+            for (const review of reviews) {
+              if (!review.user || !review.submitted_at) continue;
+              const previous = latestByReviewer.get(review.user.login);
+              if (!previous || review.submitted_at > previous.submitted_at) {
+                latestByReviewer.set(review.user.login, review);
+              }
+            }
+            const approved = [...latestByReviewer.values()].filter(review =>
+              review.state === "APPROVED" && review.user.login !== pr.user.login
+            );
+            if (approved.length < 1) {
+              core.setFailed("At least one current approval from a reviewer other than the PR author is required.");
+              return;
+            }
+
+            const { data: checkData } = await github.rest.checks.listForRef({
+              owner, repo, ref: pr.head.sha, per_page: 100
+            });
+            const checks = checkData.check_runs || [];
+            if (checks.length === 0) {
+              core.setFailed("No check runs found for this commit; refusing to merge without CI evidence.");
+              return;
+            }
+            const failing = checks.filter(check =>
+              check.status !== "completed" ||
+              !["success", "neutral", "skipped"].includes(check.conclusion)
+            );
+            if (failing.length > 0) {
+              core.setFailed("Checks are pending or failing: " + failing.map(c => c.name + "=" + c.conclusion).join(", "));
+              return;
+            }
+
+            const { data: combined } = await github.rest.repos.getCombinedStatusForRef({
+              owner, repo, ref: pr.head.sha
+            });
+            if (combined.state !== "success") {
+              core.setFailed("Combined commit status is not success (" + combined.state + ").");
+              return;
+            }
+
+            core.notice("All gates passed for PR #" + prNumber + ". Merging with squash.");
+            const result = await github.rest.pulls.merge({
+              owner, repo, pull_number: prNumber, merge_method: "squash"
+            });
+            if (!result.data.merged) {
+              core.setFailed("GitHub did not confirm the merge.");
+              return;
+            }
+            core.notice("Merged PR #" + prNumber + " at " + result.data.sha);
